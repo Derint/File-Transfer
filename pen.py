@@ -175,15 +175,12 @@ def getFolderName(link):
   
     if not getDirName(url).startswith('UKN-FIL-'):
         dir_split = tmpDir.split('/')
-        # print("dir split", dir_split)
         idx = dir_split.index(getDirName(url))
         x = 0 if ndf else 1
         tmpDir = "/".join(dir_split[idx+x:])
-    # print("here:", tmpDir)
     tmpDir2 = getPlainText(tmpDir.replace('/', slash))
     if ndf and not getDirName(url).startswith('UKN-FIL-'):
         split_dir = tmpDir2.split(slash)
-        # print("here:", f"{slash}".join(split_dir[1:])if len(split_dir)>1 else '')
         return f"{slash}".join(split_dir[1:])if len(split_dir)>1 else ''
     return tmpDir2
 
