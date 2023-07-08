@@ -31,7 +31,7 @@ def crawler(url):
 
 
 # Saving File
-def saveFile(url, path, fold_name, chunk_size=16 * 10240, remain=[], char1="█", char2=' ', div=4):
+def saveFile(url, path, fold_name, chunk_size=24 * 10240, remain=[], char1="█", char2=' ', div=4):
     global is_conn_problem
     req, mode = getRequest(url, 1, verbose=False)
     if req==-1:is_conn_problem=True; return False, '', 0
@@ -121,9 +121,8 @@ def isModifiedFile(link, filepath):
 def check_url(url):
     print("\r  [*]  Checking url ... ", end='\r')
     msg = "\r  [-]  Invalid URL or Server not active\n"
-
     r, _ = getRequest(url, 1)
-    if r!= -1 and r.status_code in [200, 406]:
+    if r!= -1 and r.status_code in [200, 406, 206]:
         return r
     
     backspace(20)
@@ -141,11 +140,7 @@ def backspace(n=0):
 def getSplit(link): 
     return  '%2F' if '%2F' in link else '/'
 
-def getPlainText(text):
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    with open(current_dir+slash+"ASCII-Encoding.json") as f:
-        switch_elts = json.load(f)
-
+def getPlainText(text, switch_elts):
     for i in switch_elts.keys():
         if i in text:
             text = text.replace(i, switch_elts[i])
@@ -153,7 +148,7 @@ def getPlainText(text):
 
 def FileName(link, directory, fold_name, only_name=False):
     rp = getSplit(link)
-    file_name = getPlainText(os.path.basename(link.replace(rp, '/')))
+    file_name = getPlainText(os.path.basename(link.replace(rp, '/')), switch_elts)
     if only_name:
         return file_name
 
@@ -189,7 +184,7 @@ def getFolderName(link, fold_name):
         x = 0 if ndf else 1
         tmpDir = "/".join(dir_split[idx+x:])
 
-    tmpDir2 = getPlainText(tmpDir.replace('/', slash))
+    tmpDir2 = getPlainText(tmpDir.replace('/', slash), switch_elts)
     if tmpDir2==url[:-1].replace('/', slash): return ''
 
     if ndf and not fold_name.startswith('UKN-FIL-'):
@@ -270,7 +265,7 @@ def connectionErrorLoop(funcName, n=8):
 def convert_size(size_bytes):
    if size_bytes == 0:
        return "0B"
-   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+   size_name = ("B", "KB", "MB", "GB", "TB")
    i = int(floor(log(size_bytes, 1024)))
    p = pow(1024, i)
    s = round(size_bytes / p, 2)
@@ -340,7 +335,6 @@ if url is None:
     if not url:
         print('\r  [!]  Invalid Url '); exit()
 
-if not url.endswith('/'): url += '/'
 
 # Getting index link
 try:
@@ -354,6 +348,11 @@ check_url(url)
 s_time = time()
 sub_time = 0
 fold_name = getDirName(url)
+
+# Converting to plain text
+current_dir = os.path.dirname(os.path.abspath(__file__))
+with open(current_dir+slash+"ASCII-Encoding.json") as f:
+    switch_elts = json.load(f)
 
 # For Single File
 print(f"\r Checking if its a File ...", end='')
@@ -371,7 +370,8 @@ if getRequest(url)[0].headers.get('last-modified'):
 
 
 # For Multiple files
-directory +=  getPlainText(fold_name) + slash if not ndf else ''
+if not url.endswith('/'): url += '/'
+directory +=  getPlainText(fold_name, switch_elts) + slash if not ndf else ''
 crawler(url)
 backspace()
 
