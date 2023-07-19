@@ -26,18 +26,19 @@ def crawler(url):
             
         if href.text.endswith('/'):
             crawler(link)
+            links.append(link)
         else:
             links.append(link)
 
 
 # Saving File
-def saveFile(url, path, fold_name, chunk_size=24 * 10240, remain=[], char1="█", char2=' ', div=4):
+def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' ', div=4):
     global is_conn_problem
-    req, mode = getRequest(url, 1, verbose=False)
+    req, mode = getRequest(url, 3, verbose=False)
     if req==-1:is_conn_problem=True; return False, '', 0
 
     total_length = getFileSize(req)
-    fn = FileName(url, directory, fold_name, only_name=True)
+    fn = FileName(url, only_name=True)
     path = os.getcwd() + slash + fn if path in ['', None] else path
     if total_length > 1e7 and chunk_size<chunk_size*10: chunk_size *= 10
 
@@ -60,11 +61,14 @@ def saveFile(url, path, fold_name, chunk_size=24 * 10240, remain=[], char1="█"
                         print(style_ , end='')
 
                     if tmp_size>=total_length:break
-                    
+            except FileExistsError:
+                backspace(5)
+                print("\r  [!]  Path Not found")   
+                logIt(EXCEPTION_PATH, "File Not Found", f"url:{url}, path:{path}")
+                sleep(1)
             except Exception as e:
-                with open('Exception.txt', 'a') as f:
-                    f.write(f"Time:{now}\nURL: {url}\nException: {e}\n")
-                connectionErrorLoop('')
+                logIt(EXCEPTION_PATH, e)
+                connectionErrorLoop('Something Went Wrong... {e}')
                 req, mode = getRequest(url, 3, verbose=True, start_index=tmp_size)
 
                 if req==-1:
@@ -76,6 +80,7 @@ def saveFile(url, path, fold_name, chunk_size=24 * 10240, remain=[], char1="█"
         connectionErrorLoop("Save file")
         
     except KeyboardInterrupt:
+        backspace(5)
         if os.path.exists(path):os.remove(path)
         return False, '', 0
 
@@ -88,19 +93,21 @@ def saveFile(url, path, fold_name, chunk_size=24 * 10240, remain=[], char1="█"
 # Network/Connection functions
 def getRequest(url, max_tries=8, verbose=True, start_index=0):
     headers = {'Range': f'bytes={start_index}-'}
-    encoded_url = urllib.parse.quote(url, safe=':/%.=+-')
+    encoded_url = urllib.parse.quote(url, safe=':/%=+-')
     while max_tries!=-1:
         try:
             if verbose:
                 backspace(30)
                 print('\r *Requesting Access...', end='')
-            return requests.get(encoded_url, stream=True, headers=headers, timeout=5), 'wb' if start_index==0 else 'ab'
+            r = requests.get(encoded_url, stream=True, headers=headers, timeout=5)
+            return r, 'wb' if start_index==0 else 'ab'
+        
         except KeyboardInterrupt:
             sys.exit()
-        except:
+        except Exception as e:
             if max_tries!=0:
                 connectionErrorLoop("in Getting Request")
-            max_tries-=1
+            max_tries-=1    
 
     backspace(40)
     print(" \r  [!]  Connection with Host Network Failed.", end='')
@@ -124,7 +131,6 @@ def check_url(url):
     r, _ = getRequest(url, 1)
     if r!= -1 and r.status_code in [200, 406, 206]:
         return r
-    
     backspace(20)
     print(msg); 
     exit()
@@ -140,73 +146,76 @@ def backspace(n=0):
 def getSplit(link): 
     return  '%2F' if '%2F' in link else '/'
 
-def getPlainText(text, switch_elts):
+def getPlainText(text):
+    global switch_elts
     for i in switch_elts.keys():
         if i in text:
             text = text.replace(i, switch_elts[i])
     return text
 
-def FileName(link, directory, fold_name, only_name=False):
-    rp = getSplit(link)
-    file_name = getPlainText(os.path.basename(link.replace(rp, '/')), switch_elts)
+def getFolderName(link):
+    "It Return the Main folder Name + the directory of files"
+    tmpDir = link.replace(index_link, '')
+    tmpDir = os.path.dirname(tmpDir)
+    tmp_fold_name = fold_name if not ndf else ''
+    if fold_name.startswith("UKN-FIL"):
+        return directory+tmp_fold_name+slash+getPlainText(tmpDir)
+
+    dirSplit = tmpDir.split('/')
+    if ndf and not fold_name.startswith("UKN-FIL"):
+        tmpDir = f"/".join(dirSplit[1:]) if len(dirSplit)>1 else ''
+   
+    idx = dirSplit.index(fold_name)
+    tmpDir = "/".join(dirSplit[idx:])
+    tmpDir = tmpDir.replace('/', slash)
+    return getPlainText(directory + tmpDir)
+
+def FileName(link, only_name=False):
+    file_name = getPlainText(os.path.basename(link))
     if only_name:
         return file_name
-
-    file_dir = getFolderName(link, fold_name) + slash
-    return directory + file_dir + file_name
+    file_dir = getFolderName(link) + slash
+    return file_dir + file_name
 
 def getList(list_):
     """Removes blank spaces from the lists"""
     return list(filter(lambda x: x!='', list_))
 
+
 def getDirName(url):
-    """It returns the Main Folder name where all files/directories will be saved"""
-    tmp_fold = url.replace(index_link, '')
-    tmp_fold = tmp_fold.replace(getSplit(url), slash).replace('/', '')
-    if tmp_fold=='':
-        fold_name = UNKNOWN_FILE_NAME
-    else:
-        if len(getList(tmp_fold.split(slash))) > 1:
-            fold_name =  getList(tmp_fold.split(slash))[-1]  
-        else:
-            fold_name=tmp_fold[:-1]
-    
-    return fold_name.replace(slash, '')
+    if url.replace(index_link, '')=='':
+        return UNKNOWN_FILE_NAME
+    url_ = url[:-1]
+    tmp_fold = url_.replace(index_link, '')
+    tmp_fold = tmp_fold.replace(getSplit(url_), slash)
+    if (len(getList(tmp_fold.split(slash)))) > 1:
+        return getList(tmp_fold.split(slash))[-1]
+    tmp_fold = tmp_fold[:-1] if tmp_fold.endswith('/') else tmp_fold
+    return tmp_fold
 
-def getFolderName(link, fold_name):
-    "It Return the Main folder Name + the directory of files"
-    rp = getSplit(link) 
-    tmpDir = os.path.dirname(link.replace(rp, slash).replace(index_link, ''))
 
-    if not fold_name.startswith('UKN-FIL-'):
-        dir_split = tmpDir.split(slash)
-        idx = dir_split.index(fold_name)
-        x = 0 if ndf else 1
-        tmpDir = "/".join(dir_split[idx+x:])
-
-    tmpDir2 = getPlainText(tmpDir.replace('/', slash), switch_elts)
-    if tmpDir2==url[:-1].replace('/', slash): return ''
-
-    if ndf and not fold_name.startswith('UKN-FIL-'):
-        split_dir = tmpDir2.split(slash)
-        return f"{slash}".join(split_dir[1:])if len(split_dir)>1 else ''
-    return tmpDir2
-
-def getFolders(links, fold_name):
+def getFolders(links):
     folders = set()
     for folder in links:
-        tmpFn = getFolderName(folder, fold_name)
+        tmpFn = getFolderName(folder)
         folders.add(tmpFn+slash)
     return list(folders)
 
 
 # System Functions
-def createFolders(folders, location):
+def createFolders(folders):
     for folder in folders:
-        loc = location + slash + folder
-        if not os.path.isdir(loc):
-            os.makedirs(loc)
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
             
+def check_empty_dir(directory):
+    emptyDir = [path_ for path_, *_ in os.walk(directory) if not(os.listdir(path_))]
+    if emptyDir:
+        uc = input(f"  [>]  Found {len(emptyDir)} empty directories. Do you want to delete {'it' if len(emptyDir)==1 else 'them'} (y/n)? ")
+        if 'y' in uc:
+            map(lambda x: os.removedirs(x), emptyDir)
+            print("  [+]  Empty Directories Purged...\n")
+        print()
 
 # Animations
 def animate():
@@ -224,7 +233,7 @@ def getStyle():
 def progressBarStyle(fn, tmp_size, total_length, char1, char2, div, remain, moreFiles=True):
     style = getStyle()
     cal = round(tmp_size / total_length * 100, 2)
-    s = f'{convert_size(tmp_size)} / {convert_size(total_length)}' 
+    s = f'{convert_size(tmp_size).center(10)} / {convert_size(total_length)}' 
     prog_bar = f"{char1 * (int(cal / div))}{char2 * int(100 / div - int(cal / div))}"
     style_ = f'\r  [{fn} | {prog_bar} |  {s.ljust(20)} ]'
                 
@@ -246,7 +255,7 @@ def progressBarStyle(fn, tmp_size, total_length, char1, char2, div, remain, more
     return style_
 
 def formatFileName(link, tl=25):
-    fn, ext = os.path.splitext(FileName(link, directory, fold_name, only_name=True))
+    fn, ext = os.path.splitext(FileName(link, only_name=True))
     fnL, extL = int(tl*0.80), int(tl * 0.20)
     
     if len(fn)>fnL: fn = fn[:fnL]
@@ -297,6 +306,10 @@ def getArguments():
     parser.add_argument('-ndf', action='store_true',  help="Directly Just Download the File i.e No Default Directory ")
     return parser.parse_args()
 
+def logIt(_fileName, _exception, _msg=""):
+    with open(_fileName, 'a') as f:
+        f.write(f"Time:{datetime.now()}\nURL: {url}\nException: {_exception}\n{_msg}\n")
+
 
 args = getArguments()
 url =  args.url
@@ -309,9 +322,8 @@ links = []
 slash = '\\' if os.name in ['nt', 'dos'] else '/'
 is_conn_problem = False
 
-now = datetime.now()
-UNKNOWN_FILE_NAME = 'UKN-FIL-' + str(now.strftime("%d-%m-%y-%H"))
-
+EXCEPTION_PATH = "Exception.txt"
+UNKNOWN_FILE_NAME = 'UKN-FIL-' + str(datetime.now().strftime("%d-%m-%y-%H"))
 
 if not m_fold_name: m_fold_name = "Downloaded-Files"
 m_fold_name += slash
@@ -335,32 +347,29 @@ if url is None:
     if not url:
         print('\r  [!]  Invalid Url '); exit()
 
-
 # Getting index link
 try:
     index_link = re.search(r'http[s]{,1}://.*?/', url).group(0)
 except Exception as e:
-    print(e)
+    # print(e)
     print('\r  [!]  Invalid Url '); exit()
 
 #Checking if the url is working
 check_url(url)
-s_time = time()
-sub_time = 0
-fold_name = getDirName(url)
 
-# Converting to plain text
+# Reading ASCII File
 current_dir = os.path.dirname(os.path.abspath(__file__))
 with open(current_dir+slash+"ASCII-Encoding.json") as f:
     switch_elts = json.load(f)
 
+# Stopwatch starts now...
+s_time = time()
 # For Single File
-print(f"\r Checking if its a File ...", end='')
-sleep(2)
+print(f"\r  *Checking if its a File ...", end='')
 if getRequest(url)[0].headers.get('last-modified'):
-    fname = directory+slash+ FileName(url, directory, fold_name, True)
+    fname = directory+slash+ FileName(url, True)
     if not os.path.isfile(fname):
-        if saveFile(url, fname, fold_name)[0]:
+        if saveFile(url, fname)[0]:
             backspace(n=20)
             print("\r  [+]  Download Complete")
     else:
@@ -370,8 +379,12 @@ if getRequest(url)[0].headers.get('last-modified'):
 
 
 # For Multiple files
-if not url.endswith('/'): url += '/'
-directory +=  getPlainText(fold_name, switch_elts) + slash if not ndf else ''
+if not url.endswith('/'): 
+    url += '/'
+    
+fold_name = getDirName(url)
+_dir_ =  getPlainText(fold_name) if not fold_name.startswith("UKN-FIL") else ''
+_dir_ = directory + _dir_
 crawler(url)
 backspace()
 
@@ -381,47 +394,44 @@ if not links:
 
 # Creating Directories
 print('\r  *Creating Directories ....', end='')
-folders = getFolders(links, fold_name)
-createFolders(folders, directory)
+pre_num = noOfFolders(_dir_)
+folders = getFolders(links)
+createFolders(folders)
 backspace(30)
 
 # Checking if the file is already present in folder
 links_2_be_downloaded = []
 for idx, link in enumerate(links):
-    fn = FileName(link, directory, fold_name)
+    fn = FileName(link)
+    if fn.endswith(slash):continue
     print(f'\r   *Checking for Previous/Modified File ({round(idx/len(links)*100)}%)... ', end='')
     if not os.path.isfile(fn)  or isModifiedFile(link, fn) :
         links_2_be_downloaded.append((link, fn))
 backspace(n=20)
 
 if not links_2_be_downloaded:
-    print(f"\r  [+]  All files Already Downloaded : {directory}")
+    print(f"\r  [+]  All files Already Downloaded : @{_dir_}")
+    check_empty_dir(_dir_)
     exit()
 
 # Downloading the File(s)
 try:
     for idx, (link, path) in enumerate(links_2_be_downloaded):
-        ok, _, tsize = saveFile(link, path, fold_name,remain=[idx+1, len(links_2_be_downloaded)])
+        ok, _, tsize = saveFile(link, path, remain=[idx+1, len(links_2_be_downloaded)])
         if ok:size+=tsize; c+=1
 except KeyboardInterrupt:
     backspace(30)
     print("KeyBoard Interruption Occured"); ok=False
-
 e_time = time()
 backspace(5)
 
-emptyDir = [path_ for path_, _, _ in os.walk(directory) if not(os.listdir(path_))]
-if emptyDir:
-    uc = input(f"  [>]  Found {len(emptyDir)} empty directories. Do you want to delete {'it' if len(emptyDir)==1 else 'them'} (y/n)? ")
-    if 'y' in uc:
-        map(lambda x: os.removedirs(x), emptyDir)
-        print("  [+]  Empty Directories Purged...\n")
+check_empty_dir(_dir_)
 
-af_num = noOfFolders(directory)
-print(f"  [INFO]  Files saved @{directory}")
-print(f'\r  [INFO]  Downloaded {c} File(s), {len(folders)} Folder(s), size : {convert_size(size)} ')
-print("\r  [INFO]  Download Time : ", convert(round(e_time - s_time -sub_time)))
+af_num = noOfFolders(_dir_)
+print(f"  [INFO]  Files saved @{_dir_}")
+print(f'\r  [INFO]  Downloaded {c} File(s), {af_num-pre_num} Folder(s), size : {convert_size(size)} ')
+print("\r  [INFO]  Download Time : ", convert(round(e_time - s_time)))
 if is_conn_problem:
     print("  [!]  Some Files were not able to be Downloaded. Pls Re-run the program to download them.")
 else:
-    if ok:print("\r  [+]\t  Download Complete")
+    if ok:print("\r   [+]\t  Download Complete")
