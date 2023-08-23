@@ -281,17 +281,22 @@ def convert_size(size_bytes):
    return "%s %s" % (s, size_name[i])
 
 def convert(seconds):
-    seconds = seconds % (24 * 3600)
     hour = seconds // 3600
-    seconds %= 3600
-    minutes = seconds // 60
-    seconds %= 60
-    m, s = 'm', 's'
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+
+    h, m, s= '', '0m:', ''
+
+    if hour:
+        h = f'{hour}h:'
+
     if minutes:
-        m = f':{minutes}m' if minutes>9 else f':0{minutes}m'
+        m = f"0{minutes}m:" if minutes<9 else f"{minutes}m:"
+
     if seconds:
-        s = f':{seconds}s' if seconds>9 else f':0{seconds}s'
-    return "%d%s%s" % (hour, m, s)
+        s = f"{seconds}s" if seconds<9 else f"{seconds}s"
+
+    return h+m+s
 
 def noOfFolders(path):
     return sum([len(j) for _, j,_ in os.walk(path)])
