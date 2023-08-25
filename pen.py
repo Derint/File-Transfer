@@ -68,7 +68,10 @@ def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' '
                 sleep(1)
             except Exception as e:
                 logIt(EXCEPTION_PATH, e)
-                connectionErrorLoop('Something Went Wrong... {e}')
+                e = str(e)
+                if len(e)>25:
+                    e = e[:25]
+                connectionErrorLoop(f'{e}')
                 req, mode = getRequest(url, 3, verbose=True, start_index=tmp_size)
 
                 if req==-1:
@@ -78,10 +81,14 @@ def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' '
 
     except (ConnectionResetError):
         connectionErrorLoop("Save file")
+        print("\r Skipping this File.... [Connection Problem]", end='')
+        sleep(5)
         
     except KeyboardInterrupt:
         backspace(5)
         if os.path.exists(path):os.remove(path)
+        print("\r  * Skipping this File....", end='')
+        sleep(1.5)
         return False, '', 0
 
     except Exception as e:
@@ -89,6 +96,7 @@ def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' '
         sys.exit()
     else:
         return True, path, total_length
+
 
 # Network/Connection functions
 def getRequest(url, max_tries=8, verbose=True, start_index=0):
@@ -213,8 +221,8 @@ def check_empty_dir(directory):
     if emptyDir:
         uc = input(f"  [>]  Found {len(emptyDir)} empty directories. Do you want to delete {'it' if len(emptyDir)==1 else 'them'} (y/n)? ")
         if 'y' in uc:
-            map(lambda x: os.removedirs(x), emptyDir)
-            print("  [+]  Empty Directories Purged...\n")
+            list(map(lambda x: os.removedirs(x), emptyDir))
+            print("  [+]  Empty Directories Purged...")
         print()
 
 # Animations
@@ -305,10 +313,10 @@ def noOfFolders(path):
 # Reading Terminal Arguments
 def getArguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--url', '-u', dest='url', help='URL of File to be downloaded.')
+    parser.add_argument('--url', '-u',  dest='url', help='URL of File to be downloaded.')
     parser.add_argument('--Fold_name', '-Fn', dest='folder_name', help="Folder Name In which you want to save all the downloaded files.")
     parser.add_argument('--todirectory', '-dir', dest='dir', help="Directory Path to save all the file(s) ")
-    parser.add_argument('-ndf', action='store_true',  help="Directly Just Download the File i.e No Default Directory ")
+    parser.add_argument('-ndf', action='store_true', help="Directly Just Download the File i.e No Default Directory ")
     return parser.parse_args()
 
 def logIt(_fileName, _exception, _msg=""):
@@ -335,10 +343,11 @@ m_fold_name += slash
 
 if ndf: m_fold_name = ''
     
-if not directory: directory = os.getcwd()
+if directory[:2] in ['.\\', './'] or not directory:
+    directory = os.getcwd() + slash + directory[2:]
     
 if not os.path.isdir(directory):
-    print("\r  [!]  Invalid Directory Path ... ");exit()
+    os.mkdir(directory)
 
 if directory.startswith('.' +slash):
     directory = os.getcwd() + directory.replace('.', '')
@@ -352,12 +361,7 @@ if url is None:
     if not url:
         print('\r  [!]  Invalid Url '); exit()
 
-# Getting index link
-try:
-    index_link = re.search(r'http[s]{,1}://.*?/', url).group(0)
-except Exception as e:
-    # print(e)
-    print('\r  [!]  Invalid Url '); exit()
+
 
 #Checking if the url is working
 check_url(url)
@@ -386,10 +390,16 @@ if getRequest(url)[0].headers.get('last-modified'):
 # For Multiple files
 if not url.endswith('/'): 
     url += '/'
-    
+
+# Getting index link
+try:
+    index_link = re.search(r'http[s]{,1}://.*?/', url).group(0)
+except Exception as e:
+    print('\r  [!]  Invalid Url '); exit()
+
 fold_name = getDirName(url)
-_dir_ =  getPlainText(fold_name) if not fold_name.startswith("UKN-FIL") else ''
-_dir_ = directory + _dir_
+
+_dir_ = getFolderName(url).rstrip(slash)
 crawler(url)
 backspace()
 
@@ -428,9 +438,13 @@ except KeyboardInterrupt:
     backspace(30)
     print("KeyBoard Interruption Occured"); ok=False
 e_time = time()
-backspace(5)
 
+backspace(5)
 check_empty_dir(_dir_)
+
+if size==0:
+    print('\r  [NOTE]  No Files were Downloaded...')
+    sys.exit()
 
 af_num = noOfFolders(_dir_)
 print(f"  [INFO]  Files saved @{_dir_}")
