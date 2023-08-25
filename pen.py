@@ -7,6 +7,7 @@ from dateutil import parser
 from math import floor, log
 
 
+
 # Crawler function
 def crawler(url):
     global links, folders, l, n
@@ -33,7 +34,7 @@ def crawler(url):
 
 # Saving File
 def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' ', div=4):
-    global is_conn_problem
+    global is_conn_problem, skip
     req, mode = getRequest(url, 3, verbose=False)
     if req==-1:is_conn_problem=True; return False, '', 0
 
@@ -60,17 +61,21 @@ def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' '
                                                     div=div, remain=remain, moreFiles = remain )
                         print(style_ , end='')
 
-                    if tmp_size>=total_length:break
+                    if tmp_size>=total_length:
+                        req.close()
+                        break
+
             except FileExistsError:
                 backspace(5)
                 print("\r  [!]  Path Not found")   
                 logIt(EXCEPTION_PATH, "File Not Found", f"url:{url}, path:{path}")
                 sleep(1)
+
             except Exception as e:
                 logIt(EXCEPTION_PATH, e)
                 e = str(e)
-                if len(e)>25:
-                    e = e[:25]
+                if len(e)>20:
+                    e = e[:20]
                 connectionErrorLoop(f'{e}')
                 req, mode = getRequest(url, 3, verbose=True, start_index=tmp_size)
 
@@ -86,9 +91,10 @@ def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' '
         
     except KeyboardInterrupt:
         backspace(5)
+        req.close()
         if os.path.exists(path):os.remove(path)
-        print("\r  * Skipping this File....", end='')
-        sleep(1.5)
+        print(f"\r  * Skipping {fn} File....", end='')
+        skip=True; sleep(1.5)
         return False, '', 0
 
     except Exception as e:
@@ -127,7 +133,8 @@ def getLastModifiedTimeFile(path):
 
 def getLastModifedTimeURL(url):
     r, _ = getRequest(url, verbose=False)
-    return parser.parse(r.headers['last-modified']).timestamp() if r.status_code!= 404 else None
+    t = parser.parse(r.headers['last-modified']).timestamp() if r.status_code!= 404 else None
+    return t
 
 def isModifiedFile(link, filepath):
     urlTS = getLastModifedTimeURL(link)
@@ -219,10 +226,14 @@ def createFolders(folders):
 def check_empty_dir(directory):
     emptyDir = [path_ for path_, *_ in os.walk(directory) if not(os.listdir(path_))]
     if emptyDir:
-        uc = input(f"  [>]  Found {len(emptyDir)} empty directories. Do you want to delete {'it' if len(emptyDir)==1 else 'them'} (y/n)? ")
-        if 'y' in uc:
-            list(map(lambda x: os.removedirs(x), emptyDir))
-            print("  [+]  Empty Directories Purged...")
+        try:    
+            uc = input(f"  [>]  Found {len(emptyDir)} empty directories. Do you want to delete {'it' if len(emptyDir)==1 else 'them'} (y/n)? ")
+            if 'y' in uc:
+                list(map(lambda x: os.removedirs(x), emptyDir))
+                print("  [+]  Empty Directories Purged...")
+        except:
+            print('it is what it is')
+        
         print()
 
 # Animations
@@ -241,16 +252,16 @@ def getStyle():
 def progressBarStyle(fn, tmp_size, total_length, char1, char2, div, remain, moreFiles=True):
     style = getStyle()
     cal = round(tmp_size / total_length * 100, 2)
-    s = f'{convert_size(tmp_size).center(10)} / {convert_size(total_length)}' 
+    s = f'{convert_size(tmp_size).center(10)}/ {convert_size(total_length)}' 
     prog_bar = f"{char1 * (int(cal / div))}{char2 * int(100 / div - int(cal / div))}"
-    style_ = f'\r  [{fn} | {prog_bar} |  {s.ljust(20)} ]'
+    style_ = f'\r  [{fn} | {prog_bar} |  {s.ljust(len(s))} ]'
                 
     # for one file
     if not moreFiles: return style_
     
-    cal2 = round(remain[0]/remain[1] * 100, 2)
     tmp_cal2 = f"{remain[0]} of {remain[1]} file(s) "
     per_str = f"({str(cal).center(6)} %)"
+
    
     if style==1:
         style_ = f' {style_}  {tmp_cal2} '
@@ -258,8 +269,7 @@ def progressBarStyle(fn, tmp_size, total_length, char1, char2, div, remain, more
         style_ = f'\r  [ {prog_bar} ]   {tmp_cal2} '
     else:
         style_ = f"\r  {per_str} {tmp_cal2} " 
-        
-    if style==1:backspace(10)
+
     return style_
 
 def formatFileName(link, tl=25):
@@ -314,8 +324,8 @@ def noOfFolders(path):
 def getArguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', '-u',  dest='url', help='URL of File to be downloaded.')
-    parser.add_argument('--Fold_name', '-Fn', dest='folder_name', help="Folder Name In which you want to save all the downloaded files.")
-    parser.add_argument('--todirectory', '-dir', dest='dir', help="Directory Path to save all the file(s) ")
+    parser.add_argument('--Fold_name', '-Fn', dest='folder_name', help="Folder Name In which you want to save all the downloaded files.", default="Downloaded-Files")
+    parser.add_argument('--todirectory', '-dir', dest='dir', help="Directory Path to save all the file(s) ", default=os.getcwd())
     parser.add_argument('-ndf', action='store_true', help="Directly Just Download the File i.e No Default Directory ")
     return parser.parse_args()
 
@@ -338,12 +348,11 @@ is_conn_problem = False
 EXCEPTION_PATH = "Exception.txt"
 UNKNOWN_FILE_NAME = 'UKN-FIL-' + str(datetime.now().strftime("%d-%m-%y-%H"))
 
-if not m_fold_name: m_fold_name = "Downloaded-Files"
 m_fold_name += slash
 
 if ndf: m_fold_name = ''
     
-if directory[:2] in ['.\\', './'] or not directory:
+if directory[:2] in ['.\\', './']:
     directory = os.getcwd() + slash + directory[2:]
     
 if not os.path.isdir(directory):
@@ -398,7 +407,7 @@ except Exception as e:
     print('\r  [!]  Invalid Url '); exit()
 
 fold_name = getDirName(url)
-
+skip=False
 _dir_ = getFolderName(url).rstrip(slash)
 crawler(url)
 backspace()
@@ -414,6 +423,7 @@ folders = getFolders(links)
 createFolders(folders)
 backspace(30)
 
+
 # Checking if the file is already present in folder
 links_2_be_downloaded = []
 for idx, link in enumerate(links):
@@ -423,6 +433,7 @@ for idx, link in enumerate(links):
     if not os.path.isfile(fn)  or isModifiedFile(link, fn) :
         links_2_be_downloaded.append((link, fn))
 backspace(n=20)
+
 
 if not links_2_be_downloaded:
     print(f"\r  [+]  All files Already Downloaded : @{_dir_}")
@@ -436,7 +447,7 @@ try:
         if ok:size+=tsize; c+=1
 except KeyboardInterrupt:
     backspace(30)
-    print("KeyBoard Interruption Occured"); ok=False
+    ok=False
 e_time = time()
 
 backspace(5)
@@ -450,7 +461,7 @@ af_num = noOfFolders(_dir_)
 print(f"  [INFO]  Files saved @{_dir_}")
 print(f'\r  [INFO]  Downloaded {c} File(s), {af_num-pre_num} Folder(s), size : {convert_size(size)} ')
 print("\r  [INFO]  Download Time : ", convert(round(e_time - s_time)))
-if is_conn_problem:
+if is_conn_problem and skip:
     print("  [!]  Some Files were not able to be Downloaded. Pls Re-run the program to download them.")
 else:
     if ok:print("\r   [+]\t  Download Complete")
