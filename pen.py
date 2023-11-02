@@ -1,12 +1,11 @@
-import urllib.parse, requests
+from tkinter import EXCEPTION
+import urllib.parse, requests, pickle
 from time import sleep, time
 import os, sys, re, argparse, json
 from bs4 import BeautifulSoup
 from datetime import datetime
 from dateutil import parser
 from math import floor, log
-
-
 
 # Crawler function
 def crawler(url):
@@ -27,17 +26,19 @@ def crawler(url):
             
         if href.text.endswith('/'):
             crawler(link)
-            links.append(link)
         else:
             links.append(link)
 
 
 # Saving File
-def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' ', div=4):
-    global is_conn_problem, skip
-    req, mode = getRequest(url, 3, verbose=False)
-    if req==-1:is_conn_problem=True; return False, '', 0
-
+def saveFile(url, path, chunk_size=3 * 1024 * 100, remain=[], char1="█", char2=' ', div=4):
+    global is_conn_problem, skip, EXCEPTION_OCCURED, ONLY_ONCE
+    req, mode = getRequest(url, 3, verbose=ONLY_ONCE)
+    if req==-1:
+        is_conn_problem=True; 
+        return False, '', 0
+    
+    ONLY_ONCE=False
     total_length = getFileSize(req)
     fn = FileName(url, only_name=True)
     path = os.getcwd() + slash + fn if path in ['', None] else path
@@ -57,19 +58,21 @@ def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' '
                         tmp_size += len(chunk)
 
                         # Progress bar
-                        style_ = progressBarStyle(fn, tmp_size, total_length, char1=char1, char2=char2, 
-                                                    div=div, remain=remain, moreFiles = remain )
+                        style_ = progressBarStyle(
+                                    fn, tmp_size, total_length, char1=char1, char2=char2, div=div, 
+                                    remain=remain, moreFiles = remain )
                         print(style_ , end='')
 
                     if tmp_size>=total_length:
                         req.close()
                         break
 
-            except FileExistsError:
+            except (IOError):
                 backspace(5)
-                print("\r  [!]  Path Not found")   
-                logIt(EXCEPTION_PATH, "File Not Found", f"url:{url}, path:{path}")
+                EXCEPTION_OCCURED=True
+                logIt(EXCEPTION_PATH, "File Not Found", f"url:{url}\npath:{path}")
                 sleep(1)
+                go=False
 
             except Exception as e:
                 logIt(EXCEPTION_PATH, e)
@@ -102,8 +105,7 @@ def saveFile(url, path, chunk_size=24 * 10240, remain=[], char1="█", char2=' '
         sys.exit()
     else:
         return True, path, total_length
-
-
+    
 # Network/Connection functions
 def getRequest(url, max_tries=8, verbose=True, start_index=0):
     headers = {'Range': f'bytes={start_index}-'}
@@ -143,9 +145,10 @@ def isModifiedFile(link, filepath):
 def check_url(url):
     print("\r  [*]  Checking url ... ", end='\r')
     msg = "\r  [-]  Invalid URL or Server not active\n"
-    r, _ = getRequest(url, 1)
-    if r!= -1 and r.status_code in [200, 406, 206]:
-        return r
+    if url.startswith('http'):
+        r, _ = getRequest(url, 0)
+        if r!= -1 and r.status_code in [200, 406, 206]:
+            return r
     backspace(20)
     print(msg); 
     exit()
@@ -153,7 +156,6 @@ def check_url(url):
 def getFileSize(request):
     return int(request.headers.get('content-length'))
 
-    
 # String Formating
 def backspace(n=0):
     print(f"\r {' '*(os.get_terminal_size()[0]-n)}", end='\r')
@@ -171,26 +173,25 @@ def getPlainText(text):
 def getFolderName(link):
     "It Return the Main folder Name + the directory of files"
     tmpDir = link.replace(index_link, '')
-    tmpDir = os.path.dirname(tmpDir)
+    tmpDir = os.path.dirname(tmpDir.replace("%2F", '/'))
     tmp_fold_name = fold_name if not ndf else ''
     if fold_name.startswith("UKN-FIL"):
         return directory+tmp_fold_name+slash+getPlainText(tmpDir)
-
+    
     dirSplit = tmpDir.split('/')
-    if ndf and not fold_name.startswith("UKN-FIL"):
-        tmpDir = f"/".join(dirSplit[1:]) if len(dirSplit)>1 else ''
-   
+        
     idx = dirSplit.index(fold_name)
+    idx = idx+ 1 if ndf else idx
     tmpDir = "/".join(dirSplit[idx:])
-    tmpDir = tmpDir.replace('/', slash)
+    tmpDir = tmpDir.replace('/', slash)# For windows
     return getPlainText(directory + tmpDir)
 
 def FileName(link, only_name=False):
+    link = link.replace('%2F', '/')
     file_name = getPlainText(os.path.basename(link))
     if only_name:
         return file_name
-    file_dir = getFolderName(link) + slash
-    return file_dir + file_name
+    return getFolderName(link) + slash + file_name
 
 def getList(list_):
     """Removes blank spaces from the lists"""
@@ -215,7 +216,6 @@ def getFolders(links):
         tmpFn = getFolderName(folder)
         folders.add(tmpFn+slash)
     return list(folders)
-
 
 # System Functions
 def createFolders(folders):
@@ -288,7 +288,9 @@ def connectionErrorLoop(funcName, n=8):
         sleep(1);
 
 
-# Calculation Functions
+
+  # Calculation Functions
+
 def convert_size(size_bytes):
    if size_bytes == 0:
        return "0B"
@@ -303,17 +305,12 @@ def convert(seconds):
     minutes = (seconds % 3600) // 60
     seconds = seconds % 60
 
-    h, m, s= '', '0m:', ''
-
-    if hour:
-        h = f'{hour}h:'
-
+    m, s= '0m:', ''
+    h = f'{hour}h:' if hour else ''
     if minutes:
         m = f"0{minutes}m:" if minutes<9 else f"{minutes}m:"
-
     if seconds:
         s = f"{seconds}s" if seconds<9 else f"{seconds}s"
-
     return h+m+s
 
 def noOfFolders(path):
@@ -331,21 +328,24 @@ def getArguments():
 
 def logIt(_fileName, _exception, _msg=""):
     with open(_fileName, 'a') as f:
-        f.write(f"Time:{datetime.now()}\nURL: {url}\nException: {_exception}\n{_msg}\n")
+        f.write(f"Time:{datetime.now()}\nURL: {url}\nException: {_exception}\n{_msg}\n\n")
 
 
 args = getArguments()
-url =  args.url
+url =args.url
 m_fold_name = args.folder_name
 directory = args.dir
 ndf = args.ndf
 
 l, n, size, c = 1, 8, 0, 0
 links = []
-slash = '\\' if os.name in ['nt', 'dos'] else '/'
+slash = os.path.sep
 is_conn_problem = False
+EXCEPTION_OCCURED = False
+ONLY_ONCE = True
 
 EXCEPTION_PATH = "Exception.txt"
+LINK_FILENAME = "tmp_link_file.tmp"
 UNKNOWN_FILE_NAME = 'UKN-FIL-' + str(datetime.now().strftime("%d-%m-%y-%H"))
 
 m_fold_name += slash
@@ -370,8 +370,6 @@ if url is None:
     if not url:
         print('\r  [!]  Invalid Url '); exit()
 
-
-
 #Checking if the url is working
 check_url(url)
 
@@ -395,7 +393,6 @@ if getRequest(url)[0].headers.get('last-modified'):
         print("\r  [o]  File Already Downloaded ")
     exit()
 
-
 # For Multiple files
 if not url.endswith('/'): 
     url += '/'
@@ -409,6 +406,7 @@ except Exception as e:
 fold_name = getDirName(url)
 skip=False
 _dir_ = getFolderName(url).rstrip(slash)
+
 crawler(url)
 backspace()
 
@@ -433,7 +431,6 @@ for idx, link in enumerate(links):
     if not os.path.isfile(fn)  or isModifiedFile(link, fn) :
         links_2_be_downloaded.append((link, fn))
 backspace(n=20)
-
 
 if not links_2_be_downloaded:
     print(f"\r  [+]  All files Already Downloaded : @{_dir_}")
@@ -461,6 +458,10 @@ af_num = noOfFolders(_dir_)
 print(f"  [INFO]  Files saved @{_dir_}")
 print(f'\r  [INFO]  Downloaded {c} File(s), {af_num-pre_num} Folder(s), size : {convert_size(size)} ')
 print("\r  [INFO]  Download Time : ", convert(round(e_time - s_time)))
+if EXCEPTION_OCCURED:
+    print(f"\r  [!]  Path Not found. (See Logs @{EXCEPTION_PATH})")   
+
+
 if is_conn_problem and skip:
     print("  [!]  Some Files were not able to be Downloaded. Pls Re-run the program to download them.")
 else:
