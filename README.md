@@ -34,7 +34,8 @@ use the following command to view different options `python pen.py -h`
 - Download files or entire directories from a server.
 - Specify the target directory for saving the downloaded content.
 - Handle keyboard interruption for graceful program termination.
-- Easy-to-use command-line interface.
+- Debugging the program using `--addLogs` argument in command line.
+- User can Specify which files format to Download or Ignore when downloading the file.
 - Press `Ctrl + C` once to skip the current download and proceed to the next one.
 - Press `Ctrl + C` twice to stop the program entirely.
 
