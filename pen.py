@@ -410,7 +410,6 @@ else:
     logging.disable(logging.NOTSET)
     logging.shutdown()
     os.remove(EXCEPTION_PATH)
-    
 
 logger.info("Program Started")
 
@@ -527,4 +526,3 @@ else:
     if ok:print("\r   [+]\t  Download Complete")
 
 logger.info("Program Terminated Successfully....")
-# if not addLogs:
