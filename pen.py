@@ -5,14 +5,26 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from math import floor, log
 from pathlib import Path
-from colorama import Back, Fore, Style
 from dateutil import parser as dateutil_parser
 
-import platform
 
+import platform
 if platform.system()=='Windows':
     from colorama import just_fix_windows_console
     just_fix_windows_console()
+
+
+IS_COLOR_TEXT = True
+try:
+    from colorama import Back, Fore, Style
+except:
+    IS_COLOR_TEXT = False
+
+
+def color_text(text, color=''):
+    if IS_COLOR_TEXT:
+        return f"{color}{Style.BRIGHT}{text}{Style.RESET_ALL}"
+    return text
 
 
 
@@ -101,12 +113,12 @@ def keyboardIntruption(req, path, fn):
     req.close()
     if os.path.exists(path):
         os.remove(path)
-    print(color_text(f"\r  * Skipping {fn} File....", Fore.MAGENTA), end='')
+    print(color_text(f"\r  * Skipping {fn} File....", colors['magenta']), end='')
 
 def log_exeception(exception, verbose=False):
     logger.warning(f"EXCEPTION OCCURED:: {exception}")
     if verbose:
-        print(color_text(f"EXCEPTION OCCURED:: {exception}", Fore.RED))
+        print(color_text(f"EXCEPTION OCCURED:: {exception}", colors['red']))
 
 def initialize_logging(logging):
     logging.getLogger().setLevel(logging.CRITICAL + 1)
@@ -124,14 +136,14 @@ def getRequest(url, max_tries=8, verbose=True, start_index=0):
         try:
             if verbose:
                 backspace(15)
-                c = color_text("*Requesting Access...", Fore.GREEN)
+                c = color_text("*Requesting Access...",colors['green'])
                 print(f'\r {c}', end='')
             r = requests.get(encoded_url, stream=True, headers=headers, timeout=5)
             return r, 'wb' if start_index==0 else 'ab'
         
         except KeyboardInterrupt:
             backspace()
-            c = color_text('~ KeyBoard Interruption Occured', Fore.BLUE)
+            c = color_text('~ KeyBoard Interruption Occured', colors['blue'])
             print(f"\r  {c} ")
             sys.exit()
         except Exception as e:
@@ -141,7 +153,7 @@ def getRequest(url, max_tries=8, verbose=True, start_index=0):
             max_tries-=1        
 
     backspace(20)
-    c = color_text("[!]  Failed to Establised connection with Host Network", Fore.RED)
+    c = color_text("[!]  Failed to Establised connection with Host Network", colors['red'])
     print(f" \r  {c}", end='')
     logger.warning("Failed to Establised connection with Host Network")
     sleep(1.5)
@@ -167,7 +179,7 @@ def check_url(url):
         if r!= -1 and r.status_code in [200, 406, 206]:
             return r
     backspace(20)
-    print(color_text(msg, Fore.RED)); 
+    print(color_text(msg, colors['red'])); 
     logger.warning("Invalid URL or Server not active")
     exit()
 
@@ -241,7 +253,7 @@ def get_links_2_be_dwd(links):
         if fn.endswith(slash):continue
         cal = f"{round(idx/len(links)*100)}%"
         txt = f'*File Update Check {cal}' if _t_style==3 else f"*Checking for Previous/Modified File ({cal})... "
-        c = color_text(txt, Fore.CYAN)
+        c = color_text(txt, colors['cyan'])
         if _t_style!=1:
             print(f'\r   {c}', end='')
         if not os.path.isfile(fn)  or isModifiedFile(link, fn):
@@ -263,11 +275,11 @@ def check_empty_dir(directory):
     emptyDir = [path_ for path_, *_ in os.walk(directory) if not(os.listdir(path_))]
     if emptyDir:
         try:    
-            uc = input(color_text(f"  [>]  Found {len(emptyDir)} empty directories. Do you want to delete {'it' if len(emptyDir)==1 else 'them'} (y/n)? ", Fore.YELLOW))
+            uc = input(color_text(f"  [>]  Found {len(emptyDir)} empty directories. Do you want to delete {'it' if len(emptyDir)==1 else 'them'} (y/n)? ", colors['yellow']))
             if 'y' in uc:
                 for _path in emptyDir:
                     rmdir_(_path)
-                print(color_text("  [+]  Empty Directories Purged...", Fore.RED))
+                print(color_text("  [+]  Empty Directories Purged...", colors['red']))
         except Exception as e:
             print("EXception WAAASSS", e)
             pass
@@ -277,7 +289,7 @@ def check_empty_dir(directory):
 # Animations
 def animate():
     global l, n
-    print(color_text(f"\r {' '*5}Getting all the links " + '.' * l, Fore.BLUE), end='\r')
+    print(color_text(f"\r {' '*5}Getting all the links " + '.' * l, colors['blue']), end='\r')
     if l > n: backspace(n=50);l=1
 
 def getStyle():
@@ -290,14 +302,14 @@ def getStyle():
 def progressBarStyle(fn, tmp_size, total_length, char1, char2, div, remain, moreFiles=True):
     style = getStyle()
     cal = round(tmp_size / total_length * 100, 2)
-    s = color_text(f'{convert_size(tmp_size).center(10)}/ {convert_size(total_length)}', Fore.MAGENTA)
+    s = color_text(f'{convert_size(tmp_size).center(10)}/ {convert_size(total_length)}', colors['magenta'])
     prog_bar = f"{char1 * (int(cal / div))}{char2 * int(100 / div - int(cal / div))}"
-    style_ = f'\r  [{color_text(fn, Fore.CYAN)} | {prog_bar} |  {s.ljust(len(s))} ]'
+    style_ = f'\r  [{color_text(fn, colors["cyan"])} | {prog_bar} |  {s.ljust(len(s))} ]'
                 
     # for one file
     if not moreFiles: return style_
     
-    tmp_cal2 = color_text(f"{remain[0]} of {remain[1]} file(s) ", Fore.YELLOW)
+    tmp_cal2 = color_text(f"{remain[0]} of {remain[1]} file(s) ", colors['yellow'])
     per_str = f"({str(cal).center(6)} %)"
 
    
@@ -325,14 +337,14 @@ def connectionErrorLoop(funcName, tryNo, n=8):
     try:
         _t_style = getStyle()
         for i in range(n, 0, -1):
-            c1 = color_text(f"[{tryNo}/{MAX_TRIES}]", Fore.MAGENTA)
-            c2 = color_text(f"Connection Problem {funcName}: Reconnecting in {convert(i)}", Fore.RED)
-            txt = color_text("\r Connection Problem",Fore.RED) if _t_style==3 else f"\r  {c1}  {c2} "
+            c1 = color_text(f"[{tryNo}/{MAX_TRIES}]", colors['magenta'])
+            c2 = color_text(f"Connection Problem {funcName}: Reconnecting in {convert(i)}", colors['red'])
+            txt = color_text("\r Connection Problem",colors['red']) if _t_style==3 else f"\r  {c1}  {c2} "
             print(txt, end="")
             sleep(1);
     except KeyboardInterrupt:
         backspace(10)
-        print(color_text("\r  Skipping Wait time...", Fore.CYAN), end='\r')
+        print(color_text("\r  Skipping Wait time...", colors['cyan']), end='\r')
         sleep(0.5)
     backspace(10)
 
@@ -343,8 +355,7 @@ def logAnimation():
     sleep(1.5)
     backspace()
 
-def color_text(text, color, text_style=Style.BRIGHT):
-    return f"{color}{text_style}{text}{Style.RESET_ALL}"
+
 
 
 # Calculation Functions
@@ -400,10 +411,16 @@ ALLOWED_EXTS = tuple(args.allowed_exts)
 IGNORE_EXTS = tuple(args.ignore_ext)
 WAIT_TIME = args.wait_time
 
+if IS_COLOR_TEXT:
+    colors = {'yellow':Fore.YELLOW, 'red':Fore.RED,  'magenta':Fore.MAGENTA, 'blue':Fore.BLUE, 'cyan':Fore.CYAN, 'green':Fore.GREEN}
+else:
+    colors = {'yellow':'', 'red':'','blue':'', 'cyan':'', 'magenta':'', 'green':''}
+
+
 
 if ALLOWED_EXTS and IGNORE_EXTS:
     err_msg = "Error: Only one of --extensions/-ext or --ignoreExt/IgnExt is allowed, not both."
-    print(color_text(Fore.RED, err_msg))
+    print(color_text(colors['red'], err_msg))
     sys.exit()
 
 
@@ -451,7 +468,7 @@ else:
 logger.info("Program Started")
 
 if url is None:
-    url = input(color_text("\n  [>]  Enter URL: ", Fore.YELLOW))
+    url = input(color_text("\n  [>]  Enter URL: ", colors['yellow']))
     if not url:
         print('\r  [!]  Invalid Url '); exit()
 
@@ -468,15 +485,15 @@ s_time = time()
 
 # For Single File
 print(f"\r  *Checking if its a File ...", end='')
-if getRequest(url, 3)[0].headers.get('last-modified'):
+if getRequest(url, 3)[0].headers.get('content-type')=='application/octet-stream': # since every file has last-modified key.
     fname = directory+slash+ FileName(url, True)
     if not os.path.isfile(fname):
         if saveFile(url, fname)[0]:
             backspace(n=10)
-            print(color_text("\r  [+]  Download Complete", Fore.GREEN))
+            print(color_text("\r  [+]  Download Complete", colors['green']))
     else:
         backspace(n=20)
-        print(color_text("\r  [o]  File Already Downloaded ", Fore.GREEN))
+        print(color_text("\r  [o]  File Already Downloaded ",colors['green']))
     exit()
 
 # For Multiple files
@@ -529,7 +546,7 @@ backspace(n=10)
 links_2_be_downloaded = get_links_2_be_dwd(links)
 
 if not links_2_be_downloaded:
-    print(color_text(f"\r  [+]  All files Already Downloaded : @{_dir_}", Fore.GREEN))
+    print(color_text(f"\r  [+]  All files Already Downloaded : @{_dir_}", colors['green']))
     check_empty_dir(_dir_)
     exit()
 
@@ -546,19 +563,19 @@ backspace(5)
 check_empty_dir(_dir_)
 
 if size==0:
-    print(color_text('\r  [NOTE]  No Files were Downloaded...', Fore.CYAN))
+    print(color_text('\r  [NOTE]  No Files were Downloaded...', colors['cyan']))
     sys.exit()
 
 af_num = noOfFolders(_dir_)
-print(color_text(f"  [INFO]  Files saved @{_dir_}", Fore.BLUE))
-print(color_text(f'\r  [INFO]  Downloaded {c} File(s), {af_num-pre_num} Folder(s), size : {convert_size(size)} ', Fore.BLUE))
-print(color_text("\r  [INFO]  Download Time : "+ str(convert(round(e_time - s_time))), Fore.BLUE))
+print(color_text(f"  [INFO]  Files saved @{_dir_}",colors['blue']))
+print(color_text(f'\r  [INFO]  Downloaded {c} File(s), {af_num-pre_num} Folder(s), size : {convert_size(size)} ', colors['blue']))
+print(color_text("\r  [INFO]  Download Time : "+ str(convert(round(e_time - s_time))), colors['blue']))
 if EXCEPTION_OCCURED:
     print(f"\r  [!]  Path Not found. (See Logs @{EXCEPTION_PATH})")   
 
 if is_conn_problem:
-    print(color_text("  [!]  Some Files were not able to be Downloaded. Pls Re-run the program to download them.", Fore.MAGENTA))
+    print(color_text("  [!]  Some Files were not able to be Downloaded. Pls Re-run the program to download them.", colors['magenta']))
 else:
-    if ok:print(color_text("\r   [+]\t  Download Complete", Fore.GREEN))
+    if ok:print(color_text("\r   [+]\t  Download Complete", colors['green']))
 
 logger.info("Program Terminated Successfully....")
