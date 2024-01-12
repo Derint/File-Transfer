@@ -1,6 +1,6 @@
-import urllib.parse, requests, logging
+import urllib.parse, requests, logging, pickle, json
 from time import sleep, time
-import os, sys, re, argparse, json
+import os, sys, re, argparse
 from bs4 import BeautifulSoup
 from datetime import datetime
 from math import floor, log
@@ -8,6 +8,7 @@ from pathlib import Path
 from dateutil import parser as dateutil_parser
 
 
+# Background Color Configuration in Windows
 import platform
 if platform.system()=='Windows':
     from colorama import just_fix_windows_console
@@ -30,31 +31,42 @@ def color_text(text, color=''):
 
 # Crawler Function
 def crawler(url):
-    global links, folders, l, n
-    animate();l+=1
-    req, _ = getRequest(url, verbose=False)
-    soup = BeautifulSoup(req.content, features='html.parser')
+    my_links = []
+    
+    def crawl_this_link(url):
+        global l
+        animate();l+=1
+        req, _ = getRequest(url, verbose=False)
+        
+        if req.status_code!=200:
+            logger.info(f"Skipping this URL, Status-code:{req.status_code}")
+            return
 
-    for href in soup.find_all('a'):
-        if href.text == '..':continue
-            
-        # Href problem (i.e href='abs-path' or href='full-path')
-        link = index_link 
-        if len([_ for _ in href.get('href').replace('%2F', '/').split('/') if _])==1:
-            link +=  url.replace(index_link, '')
-        link +=  href.get('href')
-            
-        if href.text.endswith('/'):
-            crawler(link)
-        else:
-            links.append(link)
+        soup = BeautifulSoup(req.content, features='html.parser')
+
+        for href in soup.find_all('a'):
+            if href.text == '..':continue
+                
+            # Href problem (i.e href='abs-path' or href='full-path')
+            link = index_link 
+            if len([_ for _ in href.get('href').replace('%2F', '/').split('/') if _])==1:
+                link +=  url.replace(index_link, '')
+            link +=  href.get('href')
+                
+            if href.text.endswith('/'):
+                crawl_this_link(link)
+            else:
+                my_links.append(link)
+
+    crawl_this_link(url)
+    return my_links
 
 # File Saving Function
-def saveFile(url, path, chunk_size=3 * 1024 * 100, remain=[], char1="█", char2=' ', div=4): #
+def saveFile(url, path, start_idx=0, chunk_size=3 * 1024*100, remain=[], char1="█", char2=' ', div=4): 
     global is_conn_problem, EXCEPTION_OCCURED, ONLY_ONCE, MAX_TRIES, INC_DWD_FILES
     FALSE_COND = False, '', 0
 
-    req, mode = getRequest(url, 1, verbose=ONLY_ONCE)
+    req, mode = getRequest(url, 1, start_index=start_idx, verbose=ONLY_ONCE)
     if req == -1:
         is_conn_problem = True
         return FALSE_COND
@@ -86,8 +98,7 @@ def saveFile(url, path, chunk_size=3 * 1024 * 100, remain=[], char1="█", char2
                     break
 
             except KeyboardInterrupt:
-                keyboardIntruption(req, path, fn)
-                sleep(1.5)
+                keyboardIntruption(path, fn)
                 return FALSE_COND
 
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
@@ -96,21 +107,57 @@ def saveFile(url, path, chunk_size=3 * 1024 * 100, remain=[], char1="█", char2
                 if req == -1:
                     INC_DWD_FILES.append((url, path, tmp_size))
                     is_conn_problem=True
-                    os.remove(path)
                     return FALSE_COND
+                
             except Exception as e:
                 logging.exception(e)
+                return FALSE_COND
+                
 
     except Exception as EXEC:
         log_exeception(EXEC, True)
         if tmp_size!=total_length:os.remove(path)
-        sys.exit()
+        return FALSE_COND
+    
     return True, path, total_length
 
+
+# Downloading Single File
+def dwd_single_file(url, directory):
+    fname = directory+slash+ FileName(url, True)
+    if not os.path.isfile(fname):
+        if saveFile(url, fname)[0]:
+            backspace(n=10)
+            print(color_text("\r  [+]  Download Complete", colors['green']))
+    else:
+        backspace(n=20)
+        print(color_text("\r  [o]  File Already Downloaded ",colors['green']))
+
+
+# Filtering Links  
+def Filter_links(links, allowed_exts=None, ignore_exts=None):
+    if allowed_exts:
+        backspace(15)
+        print("\r  *Filtering Links Based on Passed Extension....", end='')
+        return tuple(filter(
+            lambda link: Path(link).suffix[1:] in ALLOWED_EXTS,
+            links
+        ))
+
+    if ignore_exts:
+        backspace(15)
+        print("\r  *Filtering Links Based on Passed Extension....", end='')
+        return tuple(filter(
+            lambda link: Path(link).suffix[1:] not in IGNORE_EXTS,
+            links
+        ))
+    return links
+
+
 # Logging/Interuption Funtions
-def keyboardIntruption(req, path, fn):
+def keyboardIntruption(path, fn):
     backspace(5)
-    req.close()
+    # req.close()
     if os.path.exists(path):
         os.remove(path)
     print(color_text(f"\r  * Skipping {fn} File....", colors['magenta']), end='')
@@ -120,7 +167,7 @@ def log_exeception(exception, verbose=False):
     if verbose:
         print(color_text(f"EXCEPTION OCCURED:: {exception}", colors['red']))
 
-def initialize_logging(logging):
+def disable_logging(logging):
     logging.getLogger().setLevel(logging.CRITICAL + 1)
     logging.disable(logging.NOTSET)
     logging.shutdown()
@@ -179,7 +226,7 @@ def check_url(url):
         if r!= -1 and r.status_code in [200, 406, 206]:
             return r
     backspace(20)
-    print(color_text(msg, colors['red'])); 
+    print(color_text(msg, colors['red']), end=''); 
     logger.warning("Invalid URL or Server not active")
     exit()
 
@@ -209,6 +256,9 @@ def getFolderName(link):
     if fold_name.startswith("UKN-FIL"):
         return directory+tmp_fold_name+slash+getPlainText(tmpDir)
     
+    if ndf:
+        return getPlainText(directory)
+    
     dirSplit = tmpDir.split('/')
         
     idx = dirSplit.index(fold_name)
@@ -223,6 +273,12 @@ def FileName(link, only_name=False):
     if only_name:
         return file_name
     return getFolderName(link) + slash + file_name
+
+def get_short_filename(filename, max_char=15):
+    fn, ext = os.path.splitext(filename)
+    fn =  fn[:max_char] if len(fn)>max_char else fn
+    return fn + '.' + ext
+
 
 def getList(list_):
     return list(filter(lambda x: x!='', list_))
@@ -248,24 +304,47 @@ def getFolders(links):
 def get_links_2_be_dwd(links):
     links_2_be_downloaded = []
     _t_style = getStyle()
+
     for idx, link in enumerate(links):
         fn = FileName(link)
-        if fn.endswith(slash):continue
+        if fn.endswith(slash): continue
         cal = f"{round(idx/len(links)*100)}%"
         txt = f'*File Update Check {cal}' if _t_style==3 else f"*Checking for Previous/Modified File ({cal})... "
         c = color_text(txt, colors['cyan'])
         if _t_style!=1:
             print(f'\r   {c}', end='')
+
+        if len(fn)>256: # If file path is exceeding 256 characters in windows
+            if THIS_SYS_TYPE == 'Windows':
+                key = fn
+                create_dir(LONG_DIR_PATH)
+                fn = LONG_DIR_PATH +  get_short_filename(FileName(link, True))
+                DIR_CUT_DICT[key] = fn
         if not os.path.isfile(fn)  or isModifiedFile(link, fn):
             links_2_be_downloaded.append((link, fn))
     return links_2_be_downloaded
 
+def validate_url(url):
+    if url is None:
+        try:
+            url = input(color_text("\n  [>]  Enter URL: ", colors['yellow']))
+        except:
+            backspace(10)
+            print(color_text("\r  [~]  Program Exited....", colors['red']))
+            sys.exit()
+        if not url:
+            print('\r  [!]  Invalid Url '); sys.exit()
+    return url
+
 
 # System Functions
+def create_dir(dir_path):
+    if not os.path.isdir(dir_path):
+        os.makedirs(dir_path)
+
 def createFolders(folders):
     for folder in folders:
-        if not os.path.isdir(folder):
-            os.makedirs(folder)
+        create_dir(folder)
             
 def rmdir_(path):
     if os.path.isdir(path):
@@ -285,11 +364,19 @@ def check_empty_dir(directory):
             pass
         print()
 
+def save_data(filepath, object, type='pickle'):
+    mode = 'wb' if type=='pickle' else 'w'
+    with open(filepath, mode) as file:
+        if type=='pickle':
+            pickle.dump(object, file)
+        else:
+            json.dump(object, file)
+
 
 # Animations
 def animate():
     global l, n
-    print(color_text(f"\r {' '*5}Getting all the links " + '.' * l, colors['blue']), end='\r')
+    print(color_text(f"\r {' '*5}*Fetching All the Links " + '.' * l, colors['blue']), end='\r')
     if l > n: backspace(n=50);l=1
 
 def getStyle():
@@ -322,7 +409,6 @@ def progressBarStyle(fn, tmp_size, total_length, char1, char2, div, remain, more
 
     return style_
 
-
 def formatFileName(link, tl=25):
     fn, ext = os.path.splitext(FileName(link, only_name=True))
     fnL, extL = int(tl*0.80), int(tl * 0.20)
@@ -332,7 +418,8 @@ def formatFileName(link, tl=25):
         ext = '.'+ext[1:][-extL+1:]
     return str(fn+ext).strip().center(tl)
 
-def connectionErrorLoop(funcName, tryNo, n=8):
+def connectionErrorLoop(funcName, tryNo, n=2):
+    global ONLY_ONCE
     backspace(n=5)
     try:
         _t_style = getStyle()
@@ -342,6 +429,7 @@ def connectionErrorLoop(funcName, tryNo, n=8):
             txt = color_text("\r Connection Problem",colors['red']) if _t_style==3 else f"\r  {c1}  {c2} "
             print(txt, end="")
             sleep(1);
+        ONLY_ONCE=True
     except KeyboardInterrupt:
         backspace(10)
         print(color_text("\r  Skipping Wait time...", colors['cyan']), end='\r')
@@ -354,8 +442,6 @@ def logAnimation():
     print("\r Program Activity Will be Recorded....", end='')
     sleep(1.5)
     backspace()
-
-
 
 
 # Calculation Functions
@@ -391,16 +477,18 @@ def getArguments():
     argParser.add_argument('-url', '-u',  dest='url', help='URL of File to be downloaded.')
     argParser.add_argument('--Fold_name', '-Fn', dest='folder_name', help="Folder Name In which you want to save all the downloaded files.", default="Downloaded-Files")
     argParser.add_argument('--todirectory', '-dir', dest='dir', help="Directory Path to save all the file(s) ", default=os.getcwd())
-    argParser.add_argument('-ndf', action='store_true', help="Directly Just Download the File i.e No Default Directory ")
-    argParser.add_argument('--addLogs', action='store_true', dest='addLogs', help="Add Log(s)")
-    argParser.add_argument('--maxRetries', '-xtries', dest='max_retries', help="Maximum No of Retries to Fetch the File..", default=3, type=int)
-    argParser.add_argument('--waitTime', dest='wait_time', help='Time to Wait to Send the Request when Failed.', default=8, type=int)
-    argParser.add_argument('--extensions', '-ext', dest='allowed_exts', help='Download only the Specified Extensions', nargs='+', default=())
+    argParser.add_argument('-ndf', action='store_true', help="Directly Just Download the File i.e No Folder Structure #No-Directory-Folders")
+    argParser.add_argument('--addLogs', action='store_true', dest='addLogs', help="Start Logging")
+    argParser.add_argument('--maxRetries', '-xtries', dest='max_retries', help="Maximum No of Retries to request a File..", default=3, type=int)
+    argParser.add_argument('--waitTime', dest='wait_time', help='Time to Wait to Send the next Request when Previous Failed.', default=8, type=int)
+    argParser.add_argument('--extensions', '-ext', dest='allowed_exts', help='Download only the Specified File Extensions', nargs='+', default=())
     argParser.add_argument('--ignoreExt', '-IgnExt', dest='ignore_ext', help='Ignore the Specified File Extensions', nargs='+', default=())
-    return argParser, argParser.parse_args()
+    argParser.add_argument('-sf', dest='single_file', help='Is it a Single File URL', action='store_true')
+
+    return argParser.parse_args()
 
 
-argParser, args = getArguments()
+args = getArguments()
 url = args.url
 m_fold_name = args.folder_name
 directory = args.dir
@@ -410,6 +498,7 @@ MAX_TRIES = args.max_retries
 ALLOWED_EXTS = tuple(args.allowed_exts)
 IGNORE_EXTS = tuple(args.ignore_ext)
 WAIT_TIME = args.wait_time
+IS_SINGLE_FILE = args.single_file
 
 if IS_COLOR_TEXT:
     colors = {'yellow':Fore.YELLOW, 'red':Fore.RED,  'magenta':Fore.MAGENTA, 'blue':Fore.BLUE, 'cyan':Fore.CYAN, 'green':Fore.GREEN}
@@ -417,23 +506,31 @@ else:
     colors = {'yellow':'', 'red':'','blue':'', 'cyan':'', 'magenta':'', 'green':''}
 
 
-
 if ALLOWED_EXTS and IGNORE_EXTS:
     err_msg = "Error: Only one of --extensions/-ext or --ignoreExt/IgnExt is allowed, not both."
     print(color_text(colors['red'], err_msg))
     sys.exit()
 
-
 l, n, size, c = 1, 8, 0, 0
-links, INC_DWD_FILES = [], []
+INC_DWD_FILES = []
 slash = os.path.sep
 is_conn_problem = False
 EXCEPTION_OCCURED = False
 ONLY_ONCE = True
 CURRENT_WD = os.getcwd()
+THIS_SYS_TYPE = platform.system()
+DIR_CUT_DICT = {}
+
 
 EXCEPTION_PATH = directory + slash + "app.log"
 UNKNOWN_FILE_NAME = 'UKN-FIL-' + str(datetime.now().strftime("%d-%m-%y-%H"))
+
+switch_elts = {
+    "%20": " ",  "%21": "!",  "%22": "\"", "%26":'&', "%27": "'", "%28": "(", "%29": ")", "%2A": "*", "%2B": "+", "%2C": ",",
+    "%2D": "-", "%2E": ".", "%2F": "/", "%3A": ":", "%3B": ";", "%3C": "<", "%3D": "=", "%3E": ">", "%3F": "?",
+    "%40": "@", "%5B": "[", "%5C": "\\", "%5D": "]", "%5E": "^", "%5F": "_","%60": "`", "%7B": "{", "%7C": "|", "%7D": "}", 
+    "%7E": "~", "+": " ", "%0A": "", "//": "/", "\n": "", "\t": ""
+}
 
 m_fold_name += slash
 
@@ -443,7 +540,7 @@ if directory[:2] in ['.\\', './']:
     directory = CURRENT_WD + slash + directory[2:]
     
 if not os.path.isdir(directory):
-    os.makedirs(directory)
+    create_dir(directory)
 
 if directory.startswith('.' +slash):
     directory = CURRENT_WD + directory.replace('.', '')
@@ -451,8 +548,14 @@ if directory.startswith('.' +slash):
 directory += slash + m_fold_name
 
 if not os.path.isdir(directory):
-    os.mkdir(directory)
+    create_dir(directory)
 
+LONG_DIR_PATH = os.path.join(directory, 'long-files') + slash
+
+INC_FP = os.path.join(directory, "tmp.pkl")
+ARE_MULTIPLE_FILES = not os.path.isfile(INC_FP)
+
+# Initializing Logger if specified
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -462,41 +565,50 @@ logger = logging.getLogger(__name__)
 if addLogs:
     logAnimation()
 else:
-    initialize_logging(logging)
-
-
+    disable_logging(logging)
 logger.info("Program Started")
 
-if url is None:
-    url = input(color_text("\n  [>]  Enter URL: ", colors['yellow']))
-    if not url:
-        print('\r  [!]  Invalid Url '); exit()
+
+# Download the Previous Interrupted Files
+if not ARE_MULTIPLE_FILES:
+    INC_Files = pickle.load(open(INC_FP, 'rb'))
+
+    cnt = 0
+    for idx, (_url, fp, start_idx) in enumerate(INC_Files):
+        ok = saveFile(_url, fp, start_idx, remain=[idx+1, len(INC_Files)])[0]
+        if not ok: 
+            if os.path.exists(fp):
+                os.remove(fp)
+                continue
+        cnt+=1
+
+    if cnt==len(INC_Files):
+        os.remove(INC_FP)
+        backspace(10)
+        print(color_text(f"\r  [+]  All interrupted downloads({cnt}) are now complete.", colors['green']))
+    else:
+        print(color_text("  [!]  Some Files were not able to be downloaded", colors['red']))
+        os.remove(INC_FP)
+        
+    sys.exit()
+
+
+
+url = validate_url(url)
 
 #Checking if the url is working
 check_url(url)
-
-# Reading ASCII File
-current_dir = os.path.dirname(os.path.abspath(__file__))
-with open(current_dir+slash+"ASCII-Encoding.json") as f:
-    switch_elts = json.load(f)
 
 # Stopwatch starts now...
 s_time = time()
 
 # For Single File
-print(f"\r  *Checking if its a File ...", end='')
-if getRequest(url, 3)[0].headers.get('content-type')=='application/octet-stream': # since every file has last-modified key.
-    fname = directory+slash+ FileName(url, True)
-    if not os.path.isfile(fname):
-        if saveFile(url, fname)[0]:
-            backspace(n=10)
-            print(color_text("\r  [+]  Download Complete", colors['green']))
-    else:
-        backspace(n=20)
-        print(color_text("\r  [o]  File Already Downloaded ",colors['green']))
-    exit()
+if IS_SINGLE_FILE:
+    dwd_single_file(url, directory)
+    sys.exit()
 
-# For Multiple files
+
+# Otherwise treat the url as Webserver having Multiple files and directories
 if not url.endswith('/'): 
     url += '/'
 
@@ -509,29 +621,15 @@ except Exception as e:
 fold_name = getDirName(url)
 _dir_ = getFolderName(url).rstrip(slash)
 
-crawler(url)
+links = crawler(url)
 backspace()
 
 if not links:
     print("\r  [!]  No Files were found !!!"); 
     exit()
 
-if ALLOWED_EXTS:
-    backspace(15)
-    print("\r  *Filtering Links Based on Passed Extension....", end='')
-    links = tuple(filter(
-        lambda link: Path(link).suffix[1:] in ALLOWED_EXTS,
-        links
-    ))
 
-if IGNORE_EXTS:
-    backspace(15)
-    print("\r  *Filtering Links Based on Passed Extension....", end='')
-    links = tuple(filter(
-        lambda link: Path(link).suffix[1:] not in IGNORE_EXTS,
-        links
-    ))
-
+links = Filter_links(links, ALLOWED_EXTS, IGNORE_EXTS)
 backspace(15)
 
 # Creating Directories
@@ -568,14 +666,21 @@ if size==0:
 
 af_num = noOfFolders(_dir_)
 print(color_text(f"  [INFO]  Files saved @{_dir_}",colors['blue']))
-print(color_text(f'\r  [INFO]  Downloaded {c} File(s), {af_num-pre_num} Folder(s), size : {convert_size(size)} ', colors['blue']))
-print(color_text("\r  [INFO]  Download Time : "+ str(convert(round(e_time - s_time))), colors['blue']))
+print(color_text(f'\r  [INFO]  Downloaded {c} File(s), {abs(af_num-pre_num)} Folder(s), size : {convert_size(size)} ', colors['blue']))
+print(color_text( "  [INFO]  Download Time : "+ str(convert(round(e_time - s_time))), colors['blue']))
+
 if EXCEPTION_OCCURED:
     print(f"\r  [!]  Path Not found. (See Logs @{EXCEPTION_PATH})")   
 
 if is_conn_problem:
-    print(color_text("  [!]  Some Files were not able to be Downloaded. Pls Re-run the program to download them.", colors['magenta']))
+    print(color_text("  [!]  Some Files were not able to be Downloaded.", colors['magenta']))
+    print(color_text("      → Pls Re-run the Program ", colors['magenta']))
+    save_data(INC_FP, INC_DWD_FILES)
 else:
     if ok:print(color_text("\r   [+]\t  Download Complete", colors['green']))
+
+if DIR_CUT_DICT:
+    print(color_text(f"\n  [~]  Some Files had a Long File Path, So they are Stored Separated \n\t → @{LONG_DIR_PATH}", colors['cyan']))
+    save_data(LONG_DIR_PATH+'Meta-data.json', DIR_CUT_DICT, 'json')
 
 logger.info("Program Terminated Successfully....")
